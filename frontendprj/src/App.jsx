@@ -6,6 +6,7 @@ import Contact from './pages/Contact'
 import ListingDetail from './pages/ListingDetail'
 import Login from './pages/Login'
 import Sell from './pages/Sell'
+import Account from './pages/Account'
 import Navbar from './components/NavBar.jsx'
 import Footer from './components/Footer.jsx'
 import SearchBar from './components/SearchBar.jsx'
@@ -27,6 +28,7 @@ const App = () => {
         <Route path='/listing/:listingId' element={<ListingDetail />} />
         <Route path='/login' element={<Login />} />
         <Route path='/sell' element={<RequireAuth><Sell /></RequireAuth>} />
+        <Route path='/account' element={<RequireAuth><Account /></RequireAuth>} />
       </Routes>
       <Footer />
     </div>
