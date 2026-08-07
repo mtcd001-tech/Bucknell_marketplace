@@ -42,6 +42,7 @@ const Navbar = () => {
       </ul>
 
       <div className='flex items-center gap-6'>
+            <Link to='/sell' className='hidden sm:block bg-bucknell-orange text-white text-sm font-semibold px-4 py-2 rounded-full hover:opacity-90 transition'>Sell</Link>
             <img onClick={()=> { setShowSearch(true); navigate('/collection') }} src={assets.search_icon} className='w-5 cursor-pointer' alt="" />
 
             <div className='group relative'>
@@ -69,6 +70,7 @@ const Navbar = () => {
                     <NavLink onClick={()=>setVisible(false)} className='py-2 pl-6 border' to='/collection'>COLLECTION</NavLink>
                     <NavLink onClick={()=>setVisible(false)} className='py-2 pl-6 border' to='/about'>ABOUT</NavLink>
                     <NavLink onClick={()=>setVisible(false)} className='py-2 pl-6 border' to='/contact'>CONTACT</NavLink>
+                    <NavLink onClick={()=>setVisible(false)} className='py-2 pl-6 border' to='/sell'>SELL</NavLink>
                 </div>
         </div>
 

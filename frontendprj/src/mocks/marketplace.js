@@ -23,7 +23,9 @@ export const CAMPUS_CATEGORIES = [
 // has a `condition` field.
 export const CONDITIONS = ['New', 'Like New', 'Good', 'Fair', 'Well Loved'];
 
-const PICKUP_SPOTS = [
+// TODO: replace with real campus pickup spots (or a free-text/geocoded
+// location) once the backend supports a pickup location field.
+export const PICKUP_SPOTS = [
   'Bostwick Marketplace',
   'Elaine Langone Center',
   'Smith Hall',
@@ -60,5 +62,25 @@ export const getPlaceholderListingMeta = (id) => {
     // TODO: replace with the real seller's contact/message channel once
     // GET /api/product/single returns seller info instead of just an owner id.
     sellerContactEmail: `${sellerName.split(' ')[0].toLowerCase()}@bucknell.edu`,
+  };
+};
+
+// TODO: replace with POST /api/ai/draft-listing once the separate
+// Python/FastAPI drafting service exists. That endpoint should accept the
+// uploaded photos and return this exact shape, so swapping this out is a
+// one-line change at the single call site in src/pages/Sell.jsx.
+export const draftListingWithAI = async ({ photos } = {}) => {
+  void photos; // unused until the real endpoint inspects the uploaded photos
+
+  await new Promise((resolve) => setTimeout(resolve, 1400));
+
+  return {
+    title: 'Organic Chemistry Textbook (7th Edition)',
+    category: 'Textbooks',
+    condition: 'Good',
+    description: 'Used for one semester, some highlighting in the first few chapters but otherwise in good shape. No missing or torn pages.',
+    suggestedPrice: 45,
+    priceReasoning: 'Priced below the campus bookstore buyback rate based on similar recent textbook listings.',
+    missingInfo: ['ISBN', 'Edition year'],
   };
 };
