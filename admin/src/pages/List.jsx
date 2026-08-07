@@ -48,7 +48,8 @@ const List = ({ token }) => {
 
   return (
     <>
-      <p className='mb-2'>All Products List</p>
+      {/* Moderation view: every listing on the marketplace, with a remove action. */}
+      <p className='mb-2'>All Listings</p>
       <div className='flex flex-col gap-2'>
 
         {/* ------- List Table Title ---------- */}
