@@ -13,7 +13,7 @@ const ShopContextProvider = (props) => {
     const [search, setSearch] = useState('');
     const [showSearch, setShowSearch] = useState(false);
     const [cartItems, setCartItems] = useState({});
-    const [products, setProducts] = useState([]);
+    const [listings, setListings] = useState([]);
     const [token, setToken] = useState('')
     const navigate = useNavigate();
 
@@ -90,7 +90,7 @@ const ShopContextProvider = (props) => {
     const getCartAmount = () => {
         let totalAmount = 0;
         for (const items in cartItems) {
-            let itemInfo = products.find((product) => product._id === items);
+            let itemInfo = listings.find((listing) => listing._id === items);
             if (!itemInfo) continue;
             for (const item in cartItems[items]) {
                 if (cartItems[items][item] > 0) {
@@ -101,12 +101,12 @@ const ShopContextProvider = (props) => {
         return totalAmount;
     }
 
-    const getProductsData = async () => {
+    const getListingsData = async () => {
         try {
 
             const response = await axios.get(backendUrl + '/api/product/list')
             if (response.data.success) {
-                setProducts(response.data.products.reverse())
+                setListings(response.data.products.reverse())
             } else {
                 toast.error(response.data.message)
             }
@@ -131,7 +131,7 @@ const ShopContextProvider = (props) => {
     }
 
     useEffect(() => {
-        getProductsData()
+        getListingsData()
     }, [])
 
     useEffect(() => {
@@ -145,7 +145,7 @@ const ShopContextProvider = (props) => {
     }, [token])
 
     const value = {
-        products, currency, delivery_fee,
+        listings, currency, delivery_fee,
         search, setSearch, showSearch, setShowSearch,
         cartItems, addToCart,setCartItems,
         getCartCount, updateQuantity,

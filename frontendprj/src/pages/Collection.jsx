@@ -2,15 +2,16 @@ import { useContext, useEffect, useState } from 'react'
 import { ShopContext } from '../context/ShopContext'
 import { assets } from '../assets/assets';
 import Title from '../components/Title';
-import ProductItem from '../components/ProductItem';
+import ListingCard from '../components/ListingCard';
+import { CAMPUS_CATEGORIES, CONDITIONS, getPlaceholderListingMeta } from '../mocks/marketplace';
 
 const Collection = () => {
 
-  const { products , search , showSearch } = useContext(ShopContext);
+  const { listings , search , showSearch } = useContext(ShopContext);
   const [showFilter,setShowFilter] = useState(false);
-  const [filterProducts,setFilterProducts] = useState([]);
+  const [filterListings,setFilterListings] = useState([]);
   const [category,setCategory] = useState([]);
-  const [subCategory,setSubCategory] = useState([]);
+  const [condition,setCondition] = useState([]);
   const [sortType,setSortType] = useState('relavent')
 
   const toggleCategory = (e) => {
@@ -24,47 +25,50 @@ const Collection = () => {
 
   }
 
-  const toggleSubCategory = (e) => {
+  const toggleCondition = (e) => {
 
-    if (subCategory.includes(e.target.value)) {
-      setSubCategory(prev=> prev.filter(item => item !== e.target.value))
+    if (condition.includes(e.target.value)) {
+      setCondition(prev=> prev.filter(item => item !== e.target.value))
     }
     else{
-      setSubCategory(prev => [...prev,e.target.value])
+      setCondition(prev => [...prev,e.target.value])
     }
   }
 
   const applyFilter = () => {
 
-    let productsCopy = products.slice();
+    let listingsCopy = listings.slice();
 
     if (showSearch && search) {
-      productsCopy = productsCopy.filter(item => item.name.toLowerCase().includes(search.toLowerCase()))
+      listingsCopy = listingsCopy.filter(item => item.name.toLowerCase().includes(search.toLowerCase()))
     }
 
     if (category.length > 0) {
-      productsCopy = productsCopy.filter(item => category.includes(item.category));
+      listingsCopy = listingsCopy.filter(item => category.includes(item.category));
     }
 
-    if (subCategory.length > 0 ) {
-      productsCopy = productsCopy.filter(item => subCategory.includes(item.subCategory))
+    // TODO: wire to backend — filtering by the real `condition` field once
+    // the listing model has one. For now this filters against the same
+    // deterministic placeholder condition shown on the listing card.
+    if (condition.length > 0) {
+      listingsCopy = listingsCopy.filter(item => condition.includes(getPlaceholderListingMeta(item._id).condition));
     }
 
-    setFilterProducts(productsCopy)
+    setFilterListings(listingsCopy)
 
   }
 
-  const sortProduct = () => {
+  const sortListings = () => {
 
-    let fpCopy = filterProducts.slice();
+    let flCopy = filterListings.slice();
 
     switch (sortType) {
       case 'low-high':
-        setFilterProducts(fpCopy.sort((a,b)=>(a.price - b.price)));
+        setFilterListings(flCopy.sort((a,b)=>(a.price - b.price)));
         break;
 
       case 'high-low':
-        setFilterProducts(fpCopy.sort((a,b)=>(b.price - a.price)));
+        setFilterListings(flCopy.sort((a,b)=>(b.price - a.price)));
         break;
 
       default:
@@ -76,15 +80,15 @@ const Collection = () => {
 
   useEffect(()=>{
       applyFilter();
-  },[category,subCategory,search,showSearch,products])
+  },[category,condition,search,showSearch,listings])
 
   useEffect(()=>{
-    sortProduct();
+    sortListings();
   },[sortType])
 
   return (
     <div className='flex flex-col sm:flex-row gap-1 sm:gap-10 pt-10 border-t'>
-      
+
       {/* Filter Options */}
       <div className='min-w-60'>
         <p onClick={()=>setShowFilter(!showFilter)} className='my-2 text-xl flex items-center cursor-pointer gap-2'>FILTERS
@@ -92,32 +96,24 @@ const Collection = () => {
         </p>
         {/* Category Filter */}
         <div className={`border border-gray-300 pl-5 py-3 mt-6 ${showFilter ? '' :'hidden'} sm:block`}>
-          <p className='mb-3 text-sm font-medium'>CATEGORIES</p>
+          <p className='mb-3 text-sm font-medium'>CATEGORY</p>
           <div className='flex flex-col gap-2 text-sm font-light text-gray-700'>
-            <p className='flex gap-2'>
-              <input className='w-3' type="checkbox" value={'Men'} onChange={toggleCategory}/> Men
-            </p>
-            <p className='flex gap-2'>
-              <input className='w-3' type="checkbox" value={'Women'} onChange={toggleCategory}/> Women
-            </p>
-            <p className='flex gap-2'>
-              <input className='w-3' type="checkbox" value={'Kids'} onChange={toggleCategory}/> kids
-            </p>
+            {CAMPUS_CATEGORIES.map((cat) => (
+              <p className='flex gap-2' key={cat}>
+                <input className='w-3' type="checkbox" value={cat} onChange={toggleCategory}/> {cat}
+              </p>
+            ))}
           </div>
         </div>
-        {/* SubCategory Filter */}
+        {/* Condition Filter */}
         <div className={`border border-gray-300 pl-5 py-3 my-5 ${showFilter ? '' :'hidden'} sm:block`}>
-          <p className='mb-3 text-sm font-medium'>TYPE</p>
+          <p className='mb-3 text-sm font-medium'>CONDITION</p>
           <div className='flex flex-col gap-2 text-sm font-light text-gray-700'>
-            <p className='flex gap-2'>
-              <input className='w-3' type="checkbox" value={'Topwear'} onChange={toggleSubCategory}/> Topwear
-            </p>
-            <p className='flex gap-2'>
-              <input className='w-3' type="checkbox" value={'Bottomwear'} onChange={toggleSubCategory}/> Bottomwear
-            </p>
-            <p className='flex gap-2'>
-              <input className='w-3' type="checkbox" value={'Winterwear'} onChange={toggleSubCategory}/> Winterwear
-            </p>
+            {CONDITIONS.map((c) => (
+              <p className='flex gap-2' key={c}>
+                <input className='w-3' type="checkbox" value={c} onChange={toggleCondition}/> {c}
+              </p>
+            ))}
           </div>
         </div>
       </div>
@@ -126,23 +122,30 @@ const Collection = () => {
       <div className='flex-1'>
 
         <div className='flex justify-between text-base sm:text-2xl mb-4'>
-            <Title text1={'ALL'} text2={'COLLECTIONS'} />
-            {/* Porduct Sort */}
+            <Title text1={'ALL'} text2={'LISTINGS'} />
+            {/* Listing Sort */}
             <select onChange={(e)=>setSortType(e.target.value)} className='border-2 border-gray-300 text-sm px-2'>
-              <option value="relavent">Sort by: Relavent</option>
+              <option value="relavent">Sort by: Relevant</option>
               <option value="low-high">Sort by: Low to High</option>
               <option value="high-low">Sort by: High to Low</option>
             </select>
         </div>
 
-        {/* Map Products */}
-        <div className='grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 gap-y-6'>
-          {
-            filterProducts.map((item,index)=>(
-              <ProductItem key={index} name={item.name} id={item._id} price={item.price} image={item.image} />
-            ))
-          }
-        </div>
+        {/* Map Listings */}
+        {filterListings.length > 0 ? (
+          <div className='grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 gap-y-6'>
+            {
+              filterListings.map((item,index)=>(
+                <ListingCard key={index} name={item.name} id={item._id} price={item.price} image={item.image} courseCode={item.courseCode} />
+              ))
+            }
+          </div>
+        ) : (
+          <div className='text-center py-20 text-gray-500'>
+            <p className='text-lg font-medium mb-1'>No listings match yet</p>
+            <p className='text-sm'>Try clearing a filter, or be the first to post one.</p>
+          </div>
+        )}
       </div>
 
     </div>

@@ -6,13 +6,13 @@ import CartTotal from '../components/CartTotal';
 
 const Cart = () => {
 
-  const { products, currency, cartItems, updateQuantity, navigate } = useContext(ShopContext);
+  const { listings, currency, cartItems, updateQuantity, navigate } = useContext(ShopContext);
 
   const [cartData, setCartData] = useState([]);
 
   useEffect(() => {
 
-    if (products.length > 0) {
+    if (listings.length > 0) {
       const tempData = [];
       for (const items in cartItems) {
         for (const item in cartItems[items]) {
@@ -27,7 +27,7 @@ const Cart = () => {
       }
       setCartData(tempData);
     }
-  }, [cartItems, products])
+  }, [cartItems, listings])
 
   return (
     <div className='border-t pt-14'>
@@ -40,7 +40,7 @@ const Cart = () => {
         {
           cartData.map((item, index) => {
 
-            const productData = products.find((product) => product._id === item._id);
+            const productData = listings.find((listing) => listing._id === item._id);
 
             return (
               <div key={index} className='py-4 border-t border-b text-gray-700 grid grid-cols-[4fr_0.5fr_0.5fr] sm:grid-cols-[4fr_2fr_0.5fr] items-center gap-4'>
