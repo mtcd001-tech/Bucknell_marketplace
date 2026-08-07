@@ -50,11 +50,15 @@ function hashId(id) {
 // seller, condition, and pickup location to the listing model.
 export const getPlaceholderListingMeta = (id) => {
   const h = hashId(id);
+  const sellerName = SELLER_NAMES[h % SELLER_NAMES.length];
   return {
     condition: CONDITIONS[h % CONDITIONS.length],
-    sellerName: SELLER_NAMES[h % SELLER_NAMES.length],
+    sellerName,
     sellerRating: (3.5 + (h % 15) / 10).toFixed(1),
     sellerMemberSince: String(2022 + (h % 4)),
     pickupArea: PICKUP_SPOTS[h % PICKUP_SPOTS.length],
+    // TODO: replace with the real seller's contact/message channel once
+    // GET /api/product/single returns seller info instead of just an owner id.
+    sellerContactEmail: `${sellerName.split(' ')[0].toLowerCase()}@bucknell.edu`,
   };
 };

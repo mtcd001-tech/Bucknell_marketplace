@@ -1,8 +1,9 @@
 import { useContext, useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { ShopContext } from '../context/ShopContext';
-import { assets } from '../assets/assets';
+import { toast } from 'react-toastify';
 import RelatedListings from '../components/RelatedListings';
+import { getPlaceholderListingMeta } from '../mocks/marketplace';
 
 const ListingDetail = () => {
 
@@ -10,6 +11,7 @@ const ListingDetail = () => {
   const { listings, currency } = useContext(ShopContext);
   const [listingData, setListingData] = useState(false);
   const [image, setImage] = useState('')
+  const [reserved, setReserved] = useState(false)
 
   const fetchListingData = async () => {
 
@@ -26,6 +28,17 @@ const ListingDetail = () => {
   useEffect(() => {
     fetchListingData();
   }, [listingId,listings])
+
+  // TODO: wire to backend — seller name, rating, member since, pickup area,
+  // and contact info all come from the mock until the listing model carries
+  // real seller data.
+  const seller = listingData ? getPlaceholderListingMeta(listingData._id) : null;
+
+  // TODO: replace with real-time chat (Phase 5). For now "Message Seller"
+  // just surfaces the mocked contact email.
+  const messageSeller = () => {
+    toast.info(`Messaging isn't built yet — reach ${seller.sellerName} at ${seller.sellerContactEmail} for now.`)
+  }
 
   return listingData ? (
     <div className='border-t-2 pt-10 transition-opacity ease-in duration-500 opacity-100'>
@@ -49,34 +62,39 @@ const ListingDetail = () => {
         {/* -------- Listing Info ---------- */}
         <div className='flex-1'>
           <h1 className='font-medium text-2xl mt-2'>{listingData.name}</h1>
-          <div className=' flex items-center gap-1 mt-2'>
-              <img src={assets.star_icon} alt="" className="w-3 5" />
-              <img src={assets.star_icon} alt="" className="w-3 5" />
-              <img src={assets.star_icon} alt="" className="w-3 5" />
-              <img src={assets.star_icon} alt="" className="w-3 5" />
-              <img src={assets.star_dull_icon} alt="" className="w-3 5" />
-              <p className='pl-2'>(122)</p>
+          <div className='flex items-center gap-2 mt-2'>
+              <span className='text-xs font-medium px-2 py-1 rounded bg-gray-100 text-gray-700'>{seller.condition}</span>
+              {listingData.courseCode && (
+                <span className='text-xs font-medium px-2 py-1 rounded bg-bucknell-blue/10 text-bucknell-blue'>{listingData.courseCode}</span>
+              )}
           </div>
           <p className='mt-5 text-3xl font-medium'>{currency}{listingData.price}</p>
           <p className='mt-5 text-gray-500 md:w-4/5'>{listingData.description}</p>
-          <hr className='mt-8 sm:w-4/5' />
-          <div className='text-sm text-gray-500 mt-5 flex flex-col gap-1'>
-              <p>100% Original product.</p>
-              <p>Cash on delivery is available on this product.</p>
-              <p>Easy return and exchange policy within 7 days.</p>
-          </div>
-        </div>
-      </div>
 
-      {/* ---------- Description & Review Section ------------- */}
-      <div className='mt-20'>
-        <div className='flex'>
-          <b className='border px-5 py-3 text-sm'>Description</b>
-          <p className='border px-5 py-3 text-sm'>Reviews (122)</p>
-        </div>
-        <div className='flex flex-col gap-4 border px-6 py-6 text-sm text-gray-500'>
-          <p>An e-commerce website is an online platform that facilitates the buying and selling of products or services over the internet. It serves as a virtual marketplace where businesses and individuals can showcase their products, interact with customers, and conduct transactions without the need for a physical presence. E-commerce websites have gained immense popularity due to their convenience, accessibility, and the global reach they offer.</p>
-          <p>E-commerce websites typically display products or services along with detailed descriptions, images, prices, and any available variations (e.g., sizes, colors). Each product usually has its own dedicated page with relevant information.</p>
+          {/* -------- Seller Card ---------- */}
+          <div className='mt-8 border border-gray-300 rounded p-4 flex items-center justify-between gap-4 max-w-md'>
+            <div>
+              <p className='font-medium text-gray-800'>{seller.sellerName}</p>
+              <p className='text-sm text-gray-500'>★ {seller.sellerRating} · Member since {seller.sellerMemberSince}</p>
+              <p className='text-sm text-gray-500'>Pickup: {seller.pickupArea}</p>
+            </div>
+            <button onClick={messageSeller} className='border border-black px-4 py-2 text-sm hover:bg-black hover:text-white transition-all duration-300 whitespace-nowrap'>Message Seller</button>
+          </div>
+
+          {/* -------- Request to Buy ---------- */}
+          {/* TODO: replace with real-time chat + offer flow (Phase 5) */}
+          {!reserved ? (
+            <button onClick={()=>setReserved(true)} className='mt-6 bg-bucknell-orange text-white px-8 py-3 text-sm hover:opacity-90 transition'>Request to Buy</button>
+          ) : (
+            <div className='mt-6 border border-bucknell-orange/40 bg-bucknell-orange/5 rounded p-4 max-w-md'>
+              <p className='font-medium text-gray-800 mb-2'>Request sent to {seller.sellerName}</p>
+              <p className='text-sm text-gray-600'>Contact: {seller.sellerContactEmail}</p>
+              <p className='text-sm text-gray-600 mb-3'>Arrange a pickup at {seller.pickupArea}, or agree on another public campus spot that works for both of you.</p>
+              <button onClick={()=>setReserved(false)} className='text-sm text-gray-500 underline hover:text-gray-700'>Cancel request</button>
+            </div>
+          )}
+
+          <hr className='mt-8 sm:w-4/5' />
         </div>
       </div>
 
