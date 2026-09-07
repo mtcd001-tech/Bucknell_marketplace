@@ -1,0 +1,12 @@
+# MarketMind AI service dependencies.
+# Install with:  pip install -r requirements.txt
+
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+anthropic>=1.0.0
+python-multipart==0.0.20
+python-dotenv==1.0.1
+
+# Used from Step 3 onward (price_suggestions logging). Installed now so the
+# environment doesn't change mid-phase.
+pymongo==4.10.1
