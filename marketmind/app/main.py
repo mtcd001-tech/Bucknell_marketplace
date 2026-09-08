@@ -1,7 +1,7 @@
 """MarketMind -- the AI service behind the Sell form's "Draft with AI" button.
 
-Call path:  browser -> Node/Express -> THIS SERVICE -> Claude API.
-The browser never calls this service directly, and the Anthropic API key exists
+Call path:  browser -> Node/Express -> THIS SERVICE -> Gemini API.
+The browser never calls this service directly, and the Gemini API key exists
 only here.
 """
 
@@ -13,13 +13,13 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 
 from .config import (
     ALLOWED_IMAGE_TYPES,
-    ANTHROPIC_API_KEY_PRESENT,
+    GEMINI_API_KEY_PRESENT,
     MAX_IMAGE_BYTES,
     MAX_IMAGES,
     MODEL,
 )
 from .drafting import DraftingError, draft_listing
-from .schemas import DraftListingResponse
+from .schemas import DraftListingServiceResponse
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("marketmind")
@@ -28,7 +28,7 @@ app = FastAPI(title="MarketMind", version="0.1.0")
 
 # NOTE: no CORS middleware on purpose. Only the Node backend calls this service,
 # server-to-server, and CORS governs browsers. Adding permissive CORS here would
-# let any webpage hit the endpoint directly and spend your Claude credits.
+# let any webpage hit the endpoint directly and spend your Gemini quota.
 
 
 @app.get("/health")
@@ -37,15 +37,15 @@ def health() -> dict:
     return {
         "status": "ok",
         "model": MODEL,
-        "anthropicKeyConfigured": ANTHROPIC_API_KEY_PRESENT,
+        "geminiKeyConfigured": GEMINI_API_KEY_PRESENT,
     }
 
 
-@app.post("/draft-listing", response_model=DraftListingResponse)
+@app.post("/draft-listing", response_model=DraftListingServiceResponse)
 async def draft_listing_endpoint(
     images: list[UploadFile] = File(..., description="1-4 photos of the item"),
     notes: str | None = Form(None, description="Optional seller-typed notes"),
-) -> DraftListingResponse:
+) -> DraftListingServiceResponse:
     if not images:
         raise HTTPException(status_code=400, detail="at least one image is required")
     if len(images) > MAX_IMAGES:
@@ -80,9 +80,6 @@ async def draft_listing_endpoint(
         logger.warning("draft failed: %s", exc)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-    # TODO (Step 3): persist `internals` + the suggestion to the
-    # price_suggestions collection here, and return the generated
-    # listingDraftId alongside the payload.
     logger.info(
         "drafted %r as %s/%s at $%s via %s (in=%s out=%s tokens)",
         response.title,
@@ -94,4 +91,6 @@ async def draft_listing_endpoint(
         internals["outputTokens"],
     )
 
-    return response
+    # This service stays stateless: it returns `internals` and Node owns the
+    # price_suggestions collection, so the AI service needs no DB credentials.
+    return DraftListingServiceResponse(**response.model_dump(), internals=internals)

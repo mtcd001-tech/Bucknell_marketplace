@@ -12,11 +12,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# The Anthropic SDK reads ANTHROPIC_API_KEY from the environment itself; it is
-# not read directly here, and must never be logged or returned in a response.
-ANTHROPIC_API_KEY_PRESENT = bool(os.getenv("ANTHROPIC_API_KEY"))
+# The google-genai SDK reads GEMINI_API_KEY (or GOOGLE_API_KEY) from the
+# environment itself; it is not read directly here, and must never be logged
+# or returned in a response.
+GEMINI_API_KEY_PRESENT = bool(os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"))
 
-MODEL = os.getenv("MARKETMIND_MODEL", "claude-opus-5")
+MODEL = os.getenv("MARKETMIND_MODEL", "gemini-2.5-flash")
 
 # Max images accepted per draft request. The Sell form caps uploads at 4.
 MAX_IMAGES = 4

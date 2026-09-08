@@ -1,20 +1,24 @@
-"""The Claude vision call that turns photos into a listing draft."""
+"""The Gemini vision call that turns photos into a listing draft."""
 
 from __future__ import annotations
 
-import base64
 import logging
 
-import anthropic
+from google import genai
+from google.genai import errors, types
 
 from .categories import CAMPUS_CATEGORIES, CONDITIONS
 from .config import MODEL
 from .pricing import choose_pricer
-from .schemas import DraftListingResponse, ListingDraftFromClaude
+from .schemas import DraftListingResponse, ListingDraftFromModel
 
 logger = logging.getLogger(__name__)
 
-_client = anthropic.Anthropic()
+# Output ceiling. Gemini counts THINKING tokens against this budget, so a tight
+# limit can truncate the JSON mid-object -- which surfaces as `parsed is None`
+# with finish_reason MAX_TOKENS, not as an exception. Keep it generous; the
+# draft itself is only a few hundred tokens.
+MAX_OUTPUT_TOKENS = 8192
 
 SYSTEM_PROMPT = f"""You help students at Bucknell University write listings for a campus \
 marketplace where they sell used items to each other.
@@ -47,15 +51,45 @@ class DraftingError(RuntimeError):
     502 so the frontend can fall back to manual entry."""
 
 
-def _image_block(data: bytes, media_type: str) -> dict:
-    return {
-        "type": "image",
-        "source": {
-            "type": "base64",
-            "media_type": media_type,
-            "data": base64.standard_b64encode(data).decode("utf-8"),
-        },
-    }
+_client: genai.Client | None = None
+
+
+def _get_client() -> genai.Client:
+    """Build the client on first use, not at import.
+
+    genai.Client() raises ValueError immediately when no API key is resolvable.
+    Constructing it at module scope would make the whole module fail to import,
+    taking /health down with it -- so a missing key would look like a crashed
+    service instead of a service reporting a missing key.
+    """
+    global _client
+    if _client is None:
+        _client = genai.Client()  # reads GEMINI_API_KEY / GOOGLE_API_KEY
+    return _client
+
+
+def _describe_block(response: types.GenerateContentResponse) -> str | None:
+    """Return a reason string if generation was blocked or cut short.
+
+    Gemini does NOT raise for these -- it returns HTTP 200 with either no
+    candidates at all (prompt blocked) or a candidate whose finish_reason is
+    something other than STOP. Both leave `.parsed` as None.
+    """
+    feedback = getattr(response, "prompt_feedback", None)
+    if feedback is not None and getattr(feedback, "block_reason", None):
+        return f"prompt blocked ({feedback.block_reason})"
+
+    candidates = getattr(response, "candidates", None) or []
+    if not candidates:
+        return "model returned no candidates"
+
+    finish = getattr(candidates[0], "finish_reason", None)
+    if finish is not None and finish != types.FinishReason.STOP:
+        if finish == types.FinishReason.MAX_TOKENS:
+            return "response hit the output token limit and the JSON was truncated"
+        return f"generation stopped early ({finish})"
+
+    return None
 
 
 def draft_listing(
@@ -72,48 +106,55 @@ def draft_listing(
     if not images:
         raise DraftingError("at least one image is required")
 
-    content: list[dict] = [_image_block(data, media_type) for data, media_type in images]
+    parts: list[types.Part] = [
+        types.Part.from_bytes(data=data, mime_type=media_type) for data, media_type in images
+    ]
 
     if seller_notes and seller_notes.strip():
-        content.append(
-            {
-                "type": "text",
-                "text": f"Seller's notes about this item:\n{seller_notes.strip()}",
-            }
-        )
+        notes_text = "Seller's notes about this item:\n" + seller_notes.strip()
+        parts.append(types.Part.from_text(text=notes_text))
     else:
-        content.append(
-            {"type": "text", "text": "The seller did not add any notes. Work from the photos alone."}
+        parts.append(
+            types.Part.from_text(
+                text="The seller did not add any notes. Work from the photos alone."
+            )
         )
 
     try:
-        response = _client.messages.parse(
+        response = _get_client().models.generate_content(
             model=MODEL,
-            max_tokens=16000,
-            thinking={"type": "adaptive"},
-            system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": content}],
-            output_format=ListingDraftFromClaude,
+            contents=[types.Content(role="user", parts=parts)],
+            config=types.GenerateContentConfig(
+                system_instruction=SYSTEM_PROMPT,
+                response_mime_type="application/json",
+                response_schema=ListingDraftFromModel,
+                max_output_tokens=MAX_OUTPUT_TOKENS,
+            ),
         )
-    except anthropic.RateLimitError as exc:
-        raise DraftingError("Claude rate limit hit, try again in a moment") from exc
-    except anthropic.AuthenticationError as exc:
-        raise DraftingError("Claude rejected the API key") from exc
-    except anthropic.APIStatusError as exc:
-        raise DraftingError(f"Claude returned {exc.status_code}: {exc.type}") from exc
-    except anthropic.APIConnectionError as exc:
-        raise DraftingError("could not reach the Claude API") from exc
+    except errors.ClientError as exc:
+        # 4xx -- bad key, malformed request, quota exhausted.
+        raise DraftingError(f"Gemini rejected the request: {exc}") from exc
+    except errors.ServerError as exc:
+        # 5xx -- Google-side outage or overload.
+        raise DraftingError("Gemini is unavailable right now") from exc
+    except errors.APIError as exc:
+        raise DraftingError(f"Gemini API error: {exc}") from exc
     except Exception as exc:  # noqa: BLE001
-        # Anything else -- most commonly a missing/unresolvable credential,
-        # which the SDK raises as a plain TypeError, not an APIStatusError.
-        # Without this the request 500s with a stack trace instead of
-        # degrading to "draft unavailable, type it yourself".
+        # Most commonly ValueError from a missing API key, which the SDK raises
+        # as a plain builtin. Without this the request 500s with a stack trace
+        # instead of degrading to "draft unavailable, type it yourself".
         logger.exception("unexpected error drafting listing")
         raise DraftingError("the drafting service is misconfigured or unavailable") from exc
 
-    draft = response.parsed_output
-    if draft is None:
-        raise DraftingError("Claude returned no parsable draft")
+    blocked = _describe_block(response)
+    if blocked:
+        raise DraftingError(blocked)
+
+    draft = response.parsed
+    if draft is None or not isinstance(draft, ListingDraftFromModel):
+        # Schema-constrained decoding makes this rare, but not impossible: a
+        # truncated or empty body leaves .parsed unset rather than raising.
+        raise DraftingError("Gemini returned no parsable draft")
 
     pricer = choose_pricer(category=draft.category, condition=draft.condition)
     suggestion = pricer.suggest(
@@ -134,14 +175,16 @@ def draft_listing(
         missingInfo=draft.missing_info,
     )
 
+    usage = getattr(response, "usage_metadata", None)
     internals = {
         "itemSummary": draft.item_summary,
         "estimatedRetailPrice": draft.estimated_retail_price,
         "retailBasis": draft.retail_basis,
         "pricingStrategy": suggestion.strategy,
         "model": MODEL,
-        "inputTokens": response.usage.input_tokens,
-        "outputTokens": response.usage.output_tokens,
+        "inputTokens": getattr(usage, "prompt_token_count", None),
+        "outputTokens": getattr(usage, "candidates_token_count", None),
+        "thinkingTokens": getattr(usage, "thoughts_token_count", None),
     }
 
     return payload, internals

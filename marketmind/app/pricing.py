@@ -2,14 +2,14 @@
 
 DESIGN NOTE -- why pricing math lives here and not in the prompt
 ----------------------------------------------------------------
-Claude identifies the item and estimates what it costs NEW. This module turns
+The model identifies the item and estimates what it costs NEW. This module turns
 that retail estimate into a suggested resale price using a deterministic
 depreciation curve. Splitting it this way means:
 
   * the number is reproducible and unit-testable without spending API calls
   * you can retune the curve (a table edit) without touching prompt text
   * the reasoning sentence always quotes the same number the schema returns
-    -- if Claude produced both, they drift ("$45" in prose, 40 in the field)
+    -- if the model produced both, they drift ("$45" in prose, 40 in the field)
 
 PHASE 3B -- comparables
 -----------------------

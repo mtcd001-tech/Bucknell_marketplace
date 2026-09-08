@@ -1,5 +1,6 @@
 import { v2 as cloudinary } from "cloudinary";
 import productModel from "../models/productModel.js";
+import { recordSuggestionOutcome } from "../models/priceSuggestionModel.js";
 
 // function for add product
 const addProduct = async (req, res) => {
@@ -9,9 +10,9 @@ const addProduct = async (req, res) => {
       description,
       price,
       category,
-      subCategory,
-      sizes,
-      bestSeller,
+      condition,
+      pickupLocation,
+      courseCode,
     } = req.body;
 
     // 1. Sửa lỗi đọc thuộc tính của undefined bằng toán tử ?.
@@ -34,16 +35,17 @@ const addProduct = async (req, res) => {
     );
 
     // Chuẩn hóa dữ liệu khớp hoàn toàn với Mongoose Schema
-    const productData = {
+   const productData = {
       name,
       description,
       category,
       price: Number(price),
-      subCategory,
-      bestSeller: bestSeller === 'true', // Ép về kiểu Boolean thực sự (true/false)
-      size: JSON.parse(sizes),           // Đổi từ 'sizes' thành 'size' cho khớp Schema
+      condition,
+      pickupLocation,
+      courseCode: courseCode || null,
       image: imagesUrl,
-      date: Date.now()
+      date: Date.now(),
+      seller: req.body.userId,
     };
 
     console.log(productData);
@@ -51,20 +53,31 @@ const addProduct = async (req, res) => {
     const product = new productModel(productData);
     await product.save();
 
+    // Close the loop on the AI suggestion, if this listing came from one.
+    // recordSuggestionOutcome swallows its own errors -- a logging problem
+    // must never turn a successful post into a failed one.
+    await recordSuggestionOutcome({
+      listingDraftId: req.body.listingDraftId,
+      finalPrice: productData.price,
+      listingId: product._id,
+    });
+
     res.json({ success: true, message: "Product added successfully!" });
     
   } catch (error) {
     console.log(error);
+    console.log('files received:', JSON.stringify(req.files, null, 2))
     res.json({ success: false, message: error.message });
   }
 };
 
 // function for list product
 const listProducts = async (req, res) => {
+  
 
     try{
-      
-      const products = await productModel.find({});
+
+      const products = await productModel.find({}).populate('seller', 'name email')
       res.json({success:true, products})
     } catch(error){
     console.log(error);
@@ -72,9 +85,37 @@ const listProducts = async (req, res) => {
     }
 };
 
+// function for listing the current user's own listings
+const myListings = async (req, res) => {
+  try {
+    const products = await productModel
+      .find({ seller: req.body.userId })
+      .sort({ date: -1 })
+      .populate('seller', 'name email')
+    res.json({ success: true, products })
+  } catch (error) {
+    console.log(error)
+    res.json({ success: false, message: error.message })
+  }
+};
+
 // function for remove product
 const removeProduct = async (req, res) => {
   try{
+    const listing = await productModel.findById(req.body.id)
+
+    if (!listing) {
+      return res.json({ success: false, message: "Listing not found" })
+    }
+
+    // TODO: allow an admin bypass here once userModel has an isAdmin field.
+    // listing.seller is an ObjectId, req.body.userId is a string (from the
+    // JWT payload) -- compare with .toString() or this always rejects, even
+    // for the real owner.
+    if (listing.seller?.toString() !== req.body.userId) {
+      return res.json({ success: false, message: "Not authorized to remove this listing" })
+    }
+
     await productModel.findByIdAndDelete(req.body.id)
     res.json({success:true, message:"Product removed"})
   } catch(error){
@@ -96,4 +137,4 @@ const singleProduct = async (req, res) => {
   }
 };
 
-export { addProduct, listProducts, removeProduct, singleProduct };
+export { addProduct, listProducts, myListings, removeProduct, singleProduct };

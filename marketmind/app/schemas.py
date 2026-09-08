@@ -2,7 +2,7 @@
 
 Two distinct shapes live here, and the distinction matters:
 
-  * `ListingDraftFromClaude` -- what the MODEL returns. It includes the raw
+  * `ListingDraftFromModel` -- what the MODEL returns. It includes the raw
     ingredients for pricing (retail estimate + basis) but NOT the final price;
     pricing.py computes that.
   * `DraftListingResponse` -- what this SERVICE returns to Node, and what the
@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 
 from .categories import CAMPUS_CATEGORIES, CONDITIONS
 
-# Literal types put the allowed strings into the JSON schema sent to Claude, so
+# Literal types become an `enum` in the schema sent to Gemini, so
 # the model is constrained to valid values rather than asked nicely to comply.
 CategoryLiteral = Literal[
     "Textbooks",
@@ -50,8 +50,12 @@ assert set(ConditionLiteral.__args__) == set(CONDITIONS), (
 )
 
 
-class ListingDraftFromClaude(BaseModel):
-    """Structured output schema for the vision call."""
+class ListingDraftFromModel(BaseModel):
+    """Structured output schema for the vision call.
+
+    Field order matters: Gemini emits `property_ordering` from this class and
+    generates fields in that order, so identification comes before the retail
+    estimate that depends on it."""
 
     title: str = Field(
         description="Short listing title a student would write, max ~60 chars. No price in the title."
@@ -89,3 +93,15 @@ class DraftListingResponse(BaseModel):
     suggestedPrice: int
     priceReasoning: str
     missingInfo: list[str]
+
+
+class DraftListingServiceResponse(DraftListingResponse):
+    """What the SERVICE returns to Node: the seven frontend keys plus the
+    internals Node needs for price_suggestions logging.
+
+    Node strips `internals` before answering the browser -- token counts and
+    model names are operational data, not something the client needs or should
+    see. The seven-key contract the Sell form depends on is unchanged.
+    """
+
+    internals: dict
