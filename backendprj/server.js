@@ -1,4 +1,5 @@
 import express from 'express'
+import http from 'http'
 import cors from 'cors'
 import 'dotenv/config'
 import connectedDB from './config/mongodb.js'
@@ -10,6 +11,7 @@ import orderRouter from './routes/orderRoute.js'
 import accountRouter from './routes/accountRoute.js'
 import aiRouter from './routes/aiRoute.js'
 import conversationRouter from './routes/conversationRoute.js'
+import initSocket from './socket.js'
 
 // App Config
 const app = express()
@@ -34,6 +36,11 @@ app.get('/',(req,res)=>{
     res.send("API Working")
 })
 
-app.listen(port, ()=>console.log('Server started on PORT: ' + port))
+// Socket.IO needs the raw HTTP server, not the Express app, so it can handle
+// the websocket upgrade on the same port the REST API already uses.
+const server = http.createServer(app)
+initSocket(server)
+
+server.listen(port, ()=>console.log('Server started on PORT: ' + port))
 
 export default app

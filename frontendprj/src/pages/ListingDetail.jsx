@@ -2,16 +2,17 @@ import { useContext, useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { ShopContext } from '../context/ShopContext';
 import { toast } from 'react-toastify';
+import axios from 'axios';
 import RelatedListings from '../components/RelatedListings';
-import { getPlaceholderListingMeta } from '../mocks/marketplace';
 
 const ListingDetail = () => {
 
   const { listingId } = useParams();
-  const { listings, currency } = useContext(ShopContext);
+  const { listings, currency, backendUrl, token, navigate } = useContext(ShopContext);
   const [listingData, setListingData] = useState(false);
   const [image, setImage] = useState('')
   const [reserved, setReserved] = useState(false)
+  const [openingChat, setOpeningChat] = useState(false)
 
   const fetchListingData = async () => {
 
@@ -29,15 +30,31 @@ const ListingDetail = () => {
     fetchListingData();
   }, [listingId,listings])
 
-  // TODO: wire to backend — seller name, rating, member since, pickup area,
-  // and contact info all come from the mock until the listing model carries
-  // real seller data.
-  const seller = listingData ? getPlaceholderListingMeta(listingData._id) : null;
-
-  // TODO: replace with real-time chat (Phase 5). For now "Message Seller"
-  // just surfaces the mocked contact email.
-  const messageSeller = () => {
-    toast.info(`Messaging isn't built yet — reach ${seller.sellerName} at ${seller.sellerContactEmail} for now.`)
+  // Opens (or reuses) the thread for this listing and drops the buyer into it.
+  // The endpoint is idempotent, so clicking twice never makes a second thread.
+  const messageSeller = async () => {
+    if (!token) {
+      navigate('/login')
+      return
+    }
+    setOpeningChat(true)
+    try {
+      const response = await axios.post(
+        `${backendUrl}/api/conversations`,
+        { listingId },
+        { headers: { token } },
+      )
+      if (!response.data.success) {
+        toast.error(response.data.message)
+        return
+      }
+      navigate(`/account?tab=Messages&c=${response.data.conversation._id}`)
+    } catch (error) {
+      toast.error('Could not open that conversation.')
+      console.log('start conversation failed:', error)
+    } finally {
+      setOpeningChat(false)
+    }
   }
 
   return listingData ? (
@@ -63,7 +80,9 @@ const ListingDetail = () => {
         <div className='flex-1'>
           <h1 className='font-medium text-2xl mt-2'>{listingData.name}</h1>
           <div className='flex items-center gap-2 mt-2'>
-              <span className='text-xs font-medium px-2 py-1 rounded bg-gray-100 text-gray-700'>{seller.condition}</span>
+              {listingData.condition && (
+                <span className='text-xs font-medium px-2 py-1 rounded bg-gray-100 text-gray-700'>{listingData.condition}</span>
+              )}
               {listingData.courseCode && (
                 <span className='text-xs font-medium px-2 py-1 rounded bg-bucknell-blue/10 text-bucknell-blue'>{listingData.courseCode}</span>
               )}
@@ -72,13 +91,16 @@ const ListingDetail = () => {
           <p className='mt-5 text-gray-500 md:w-4/5'>{listingData.description}</p>
 
           {/* -------- Seller Card ---------- */}
+          {/* TODO: add rating and member-since once reviews exist and the user
+              model stores a signup date (Phase 4+) */}
           <div className='mt-8 border border-gray-300 rounded p-4 flex items-center justify-between gap-4 max-w-md'>
             <div>
-              <p className='font-medium text-gray-800'>{seller.sellerName}</p>
-              <p className='text-sm text-gray-500'>★ {seller.sellerRating} · Member since {seller.sellerMemberSince}</p>
-              <p className='text-sm text-gray-500'>Pickup: {seller.pickupArea}</p>
+              <p className='font-medium text-gray-800'>{listingData.seller?.name || 'Unknown seller'}</p>
+              {listingData.pickupLocation && (
+                <p className='text-sm text-gray-500'>Pickup: {listingData.pickupLocation}</p>
+              )}
             </div>
-            <button onClick={messageSeller} className='border border-black px-4 py-2 text-sm hover:bg-black hover:text-white transition-all duration-300 whitespace-nowrap'>Message Seller</button>
+            <button onClick={messageSeller} disabled={openingChat} className='border border-black px-4 py-2 text-sm hover:bg-black hover:text-white transition-all duration-300 whitespace-nowrap disabled:opacity-50'>{openingChat ? 'Opening…' : 'Message Seller'}</button>
           </div>
 
           {/* -------- Request to Buy ---------- */}
@@ -87,9 +109,9 @@ const ListingDetail = () => {
             <button onClick={()=>setReserved(true)} className='mt-6 bg-bucknell-orange text-white px-8 py-3 text-sm hover:opacity-90 transition'>Request to Buy</button>
           ) : (
             <div className='mt-6 border border-bucknell-orange/40 bg-bucknell-orange/5 rounded p-4 max-w-md'>
-              <p className='font-medium text-gray-800 mb-2'>Request sent to {seller.sellerName}</p>
-              <p className='text-sm text-gray-600'>Contact: {seller.sellerContactEmail}</p>
-              <p className='text-sm text-gray-600 mb-3'>Arrange a pickup at {seller.pickupArea}, or agree on another public campus spot that works for both of you.</p>
+              <p className='font-medium text-gray-800 mb-2'>Request sent to {listingData.seller?.name || 'the seller'}</p>
+              <p className='text-sm text-gray-600'>Contact: {listingData.seller?.email || 'not available'}</p>
+              <p className='text-sm text-gray-600 mb-3'>Arrange a pickup at {listingData.pickupLocation || 'a public campus spot'}, or agree on another public campus spot that works for both of you.</p>
               <button onClick={()=>setReserved(false)} className='text-sm text-gray-500 underline hover:text-gray-700'>Cancel request</button>
             </div>
           )}
