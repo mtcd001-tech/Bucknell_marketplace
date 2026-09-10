@@ -4,6 +4,10 @@ import {
   listMessages,
   startConversation,
 } from '../controllers/conversationController.js'
+import {
+  sendStructuredMessage,
+  respondToMessage,
+} from '../controllers/offerController.js'
 import authUser from '../middleware/auth.js'
 
 const conversationRouter = express.Router()
@@ -14,5 +18,11 @@ const conversationRouter = express.Router()
 conversationRouter.get('/', authUser, listConversations)
 conversationRouter.get('/:id/messages', authUser, listMessages)
 conversationRouter.post('/', authUser, startConversation)
+
+// Structured messages (offer / pickup) and their responses. Plain text goes
+// over the socket instead; these mutate other documents and need a real
+// request/response.
+conversationRouter.post('/:id/messages', authUser, sendStructuredMessage)
+conversationRouter.post('/:id/messages/:messageId/respond', authUser, respondToMessage)
 
 export default conversationRouter

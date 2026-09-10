@@ -4,6 +4,7 @@ import { toast } from "react-toastify";
 import { ShopContext } from "../context/ShopContext";
 import { SocketContext } from "../context/SocketContext";
 import { currentUserId } from "../utils/currentUser";
+import { OfferCard, PickupCard } from "./MessageCard";
 
 // One conversation.
 //
@@ -30,11 +31,19 @@ const ChatThread = ({ conversation, onMessageSent }) => {
   const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [composer, setComposer] = useState("text"); // text | offer | pickup
+  const [offerAmount, setOfferAmount] = useState("");
+  const [pickupLocation, setPickupLocation] = useState("");
+  const [pickupTime, setPickupTime] = useState("");
+  const [busy, setBusy] = useState(false);
+  // Mirrors conversation.status locally so a 'conversation:closed' event can
+  // flip this thread read-only immediately, without waiting for the parent.
+  const [closedLive, setClosedLive] = useState(false);
   const bottomRef = useRef(null);
 
   const conversationId = conversation?._id;
   const me = currentUserId(token);
-  const isClosed = conversation?.status === "closed";
+  const isClosed = conversation?.status === "closed" || closedLive;
 
   const loadThread = useCallback(async () => {
     if (!conversationId) return;
@@ -45,6 +54,7 @@ const ChatThread = ({ conversation, onMessageSent }) => {
       );
       if (res.data.success) {
         setMessages(res.data.messages);
+        if (res.data.conversation?.status === "closed") setClosedLive(true);
       } else {
         toast.error(res.data.message);
       }
@@ -57,6 +67,7 @@ const ChatThread = ({ conversation, onMessageSent }) => {
 
   useEffect(() => {
     setLoading(true);
+    setClosedLive(false);
     loadThread();
   }, [loadThread]);
 
@@ -83,10 +94,30 @@ const ChatThread = ({ conversation, onMessageSent }) => {
     };
     socket.on("message:new", onNew);
 
+    // An offer or pickup changed state. Replace it in place rather than
+    // appending -- it is the same message, not a new one.
+    const onUpdated = ({ message }) => {
+      if (String(message.conversation) !== String(conversationId)) return;
+      setMessages((prev) => prev.map((m) => (m._id === message._id ? message : m)));
+    };
+    socket.on("message:updated", onUpdated);
+
+    // The listing sold to a different buyer. Go read-only right away instead
+    // of letting someone keep typing into a thread the server will reject.
+    const onClosed = ({ conversationId: closedId }) => {
+      if (String(closedId) !== String(conversationId)) return;
+      setClosedLive(true);
+      loadThread();
+      onMessageSent?.();
+    };
+    socket.on("conversation:closed", onClosed);
+
     return () => {
       socket.emit("conversation:leave", { conversationId });
       socket.off("connect", joinAndSync);
       socket.off("message:new", onNew);
+      socket.off("message:updated", onUpdated);
+      socket.off("conversation:closed", onClosed);
     };
   }, [socket, conversationId, loadThread, onMessageSent]);
 
@@ -113,10 +144,75 @@ const ChatThread = ({ conversation, onMessageSent }) => {
     });
   };
 
+  // Offers and pickups go over REST, not the socket: accepting one mutates the
+  // listing and every rival conversation, so it needs a real response rather
+  // than a fire-and-forget emit. The live update still arrives on the socket.
+  const respond = async (messageId, action, amount) => {
+    setBusy(true);
+    try {
+      const res = await axios.post(
+        `${backendUrl}/api/conversations/${conversationId}/messages/${messageId}/respond`,
+        { action, amount },
+        { headers: { token } },
+      );
+      if (!res.data.success) {
+        toast.error(res.data.message);
+        return;
+      }
+      if (action === "accept") {
+        toast.success("Offer accepted — the listing is marked sold.");
+      }
+      await loadThread();
+      onMessageSent?.();
+    } catch (error) {
+      toast.error("Could not send that response.");
+      console.log("respond failed:", error);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const counter = (messageId) => {
+    const raw = window.prompt("Counter with what amount?");
+    if (raw === null) return;
+    const amount = Number(raw);
+    if (!Number.isFinite(amount) || amount < 0) {
+      toast.error("Enter a number.");
+      return;
+    }
+    respond(messageId, "counter", amount);
+  };
+
+  const sendStructured = async (payload) => {
+    setBusy(true);
+    try {
+      const res = await axios.post(
+        `${backendUrl}/api/conversations/${conversationId}/messages`,
+        payload,
+        { headers: { token } },
+      );
+      if (!res.data.success) {
+        toast.error(res.data.message);
+        return;
+      }
+      setOfferAmount("");
+      setPickupLocation("");
+      setPickupTime("");
+      setComposer("text");
+      await loadThread();
+      onMessageSent?.();
+    } catch (error) {
+      toast.error("Could not send that.");
+      console.log("send structured failed:", error);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (!conversationId) return null;
 
   return (
-    <div className="flex flex-col h-[28rem] border border-gray-300 rounded">
+    <div className="flex flex-col h-[32rem] border border-gray-300 rounded">
       <div className="px-4 py-3 border-b bg-gray-50 flex items-center justify-between gap-3">
         <div className="min-w-0">
           <p className="font-medium text-gray-800 truncate">
@@ -145,6 +241,34 @@ const ChatThread = ({ conversation, onMessageSent }) => {
         ) : (
           messages.map((m) => {
             const mine = String(m.sender?._id || m.sender) === String(me);
+
+            if (m.type === "offer") {
+              return (
+                <OfferCard
+                  key={m._id}
+                  message={m}
+                  mine={mine}
+                  // Only the other party answers, and never once closed.
+                  canRespond={!mine && !isClosed}
+                  busy={busy}
+                  onRespond={respond}
+                  onCounter={counter}
+                />
+              );
+            }
+            if (m.type === "pickup") {
+              return (
+                <PickupCard
+                  key={m._id}
+                  message={m}
+                  mine={mine}
+                  canRespond={!mine && !isClosed}
+                  busy={busy}
+                  onRespond={respond}
+                />
+              );
+            }
+
             return (
               <div
                 key={m._id}
@@ -169,24 +293,122 @@ const ChatThread = ({ conversation, onMessageSent }) => {
 
       {isClosed ? (
         <p className="px-4 py-3 border-t text-sm text-gray-500 bg-gray-50">
-          This listing sold to someone else. The conversation is read-only.
+          This listing sold to someone else. The conversation is read-only, but
+          you can still look back at what was agreed.
         </p>
       ) : (
-        <form onSubmit={send} className="flex gap-2 p-3 border-t">
-          <input
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            className="flex-1 border border-gray-300 rounded px-3 py-2 text-sm"
-            placeholder="Write a message…"
-          />
-          <button
-            type="submit"
-            disabled={sending || !draft.trim()}
-            className="bg-bucknell-orange text-white px-5 py-2 text-sm rounded disabled:opacity-50"
-          >
-            {sending ? "Sending…" : "Send"}
-          </button>
-        </form>
+        <div className="border-t">
+          <div className="flex gap-2 px-3 pt-3 text-xs">
+            {["text", "offer", "pickup"].map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => setComposer(mode)}
+                className={`px-3 py-1 rounded ${composer === mode ? "bg-gray-800 text-white" : "bg-gray-100 text-gray-600"}`}
+              >
+                {mode === "text"
+                  ? "Message"
+                  : mode === "offer"
+                    ? "Make an offer"
+                    : "Propose pickup"}
+              </button>
+            ))}
+          </div>
+
+          {composer === "text" && (
+            <form onSubmit={send} className="flex gap-2 p-3">
+              <input
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                className="flex-1 border border-gray-300 rounded px-3 py-2 text-sm"
+                placeholder="Write a message…"
+              />
+              <button
+                type="submit"
+                disabled={sending || !draft.trim()}
+                className="bg-bucknell-orange text-white px-5 py-2 text-sm rounded disabled:opacity-50"
+              >
+                {sending ? "Sending…" : "Send"}
+              </button>
+            </form>
+          )}
+
+          {composer === "offer" && (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const amount = Number(offerAmount);
+                if (!Number.isFinite(amount) || amount < 0) {
+                  toast.error("Enter a valid amount.");
+                  return;
+                }
+                sendStructured({ type: "offer", amount, body: draft.trim() });
+                setDraft("");
+              }}
+              className="flex flex-wrap gap-2 p-3"
+            >
+              <input
+                value={offerAmount}
+                onChange={(e) => setOfferAmount(e.target.value)}
+                type="number"
+                min={0}
+                className="w-28 border border-gray-300 rounded px-3 py-2 text-sm"
+                placeholder="$"
+              />
+              <input
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                className="flex-1 min-w-[8rem] border border-gray-300 rounded px-3 py-2 text-sm"
+                placeholder="Optional note"
+              />
+              <button
+                type="submit"
+                disabled={busy || !offerAmount}
+                className="bg-bucknell-blue text-white px-5 py-2 text-sm rounded disabled:opacity-50"
+              >
+                Send offer
+              </button>
+            </form>
+          )}
+
+          {composer === "pickup" && (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (!pickupLocation.trim() || !pickupTime.trim()) {
+                  toast.error("Add a place and a time.");
+                  return;
+                }
+                sendStructured({
+                  type: "pickup",
+                  location: pickupLocation.trim(),
+                  time: pickupTime.trim(),
+                });
+              }}
+              className="flex flex-wrap gap-2 p-3"
+            >
+              <input
+                value={pickupLocation}
+                onChange={(e) => setPickupLocation(e.target.value)}
+                className="flex-1 min-w-[8rem] border border-gray-300 rounded px-3 py-2 text-sm"
+                placeholder="Where (e.g. Smith Hall)"
+              />
+              <input
+                value={pickupTime}
+                onChange={(e) => setPickupTime(e.target.value)}
+                className="flex-1 min-w-[8rem] border border-gray-300 rounded px-3 py-2 text-sm"
+                placeholder="When (e.g. Thursday after 3pm)"
+              />
+              <button
+                type="submit"
+                disabled={busy}
+                className="bg-bucknell-orange text-white px-5 py-2 text-sm rounded disabled:opacity-50"
+              >
+                Propose
+              </button>
+            </form>
+          )}
+        </div>
       )}
     </div>
   );

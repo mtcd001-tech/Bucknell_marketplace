@@ -77,7 +77,13 @@ const listProducts = async (req, res) => {
 
     try{
 
-      const products = await productModel.find({}).populate('seller', 'name email')
+      // Sold listings drop out of browse but stay reachable by id, so links
+      // and conversation context on a sold item never 404. $ne rather than
+      // { status: 'active' }: rows seeded before the field existed have no
+      // status at all and must still appear.
+      const products = await productModel
+        .find({ status: { $ne: 'sold' } })
+        .populate('seller', 'name email')
       res.json({success:true, products})
     } catch(error){
     console.log(error);

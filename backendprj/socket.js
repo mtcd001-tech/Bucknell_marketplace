@@ -16,6 +16,13 @@ import messageModel from "./models/messageModel.js";
 
 const roomFor = (conversationId) => `conversation:${conversationId}`;
 
+// Offers and pickups are mutated over REST (they have cross-document side
+// effects and deserve a real request/response), but the other party still has
+// to see them appear live. Holding the io instance here lets those controllers
+// broadcast into the same rooms without importing the whole socket setup.
+let ioInstance = null;
+const getIO = () => ioInstance;
+
 // Shared with the REST layer in spirit: same JWT, same secret, same shape.
 // Note that admin tokens (signed as a bare string, not {id}) decode to a
 // string with no .id, so they fail this check -- correct, since admins are
@@ -53,6 +60,8 @@ const initSocket = (httpServer) => {
     // both together to the deployed frontend origin before going public.
     cors: { origin: "*" },
   });
+
+  ioInstance = io;
 
   io.use(authenticate);
 
@@ -122,4 +131,4 @@ const initSocket = (httpServer) => {
 };
 
 export default initSocket;
-export { roomFor };
+export { roomFor, getIO };

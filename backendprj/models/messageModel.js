@@ -26,9 +26,18 @@ const messageSchema = new mongoose.Schema({
   // Populated only when type === 'offer'.
   offer: {
     amount: { type: Number },
+    // pending   -> awaiting a response
+    // accepted  -> seller took it; the listing is now sold
+    // declined  -> explicitly refused by the other party
+    // countered -> answered with a different amount (a new offer message)
+    // expired   -> the listing sold to a DIFFERENT buyer while this sat open.
+    //              Kept distinct from 'declined' on purpose: nobody judged this
+    //              offer, it just lost the race. Folding the two together would
+    //              silently deflate the acceptance rate with offers that were
+    //              never actually rejected.
     status: {
       type: String,
-      enum: ["pending", "accepted", "declined", "countered"],
+      enum: ["pending", "accepted", "declined", "countered", "expired"],
     },
     respondedAt: { type: Number, default: null },
   },
@@ -49,6 +58,28 @@ const messageSchema = new mongoose.Schema({
 
 // Loading a thread is always "messages for this conversation, oldest first".
 messageSchema.index({ conversation: 1, createdAt: 1 });
+
+// Supports the offer analytics below without a collection scan.
+messageSchema.index({ type: 1, "offer.status": 1 });
+
+// WHAT THIS BUYS YOU -- the reason offers are documents and not sentences:
+//
+// Offer acceptance rate (explicit decisions only; 'expired' and 'pending' are
+// deliberately excluded because neither is a judgement on the offer):
+//
+//   db.messages.aggregate([
+//     { $match: { type: "offer", "offer.status": { $in: ["accepted", "declined"] } } },
+//     { $group: {
+//         _id: null,
+//         decided:  { $sum: 1 },
+//         accepted: { $sum: { $cond: [{ $eq: ["$offer.status", "accepted"] }, 1, 0] } }
+//     }},
+//     { $project: { _id: 0, decided: 1, accepted: 1,
+//         acceptanceRate: { $round: [{ $multiply: [{ $divide: ["$accepted", "$decided"] }, 100] }, 1] } }}
+//   ])
+//
+// Average final price vs asking price lives on the listings, since that is
+// where the agreed number is recorded -- see models/productModel.js.
 
 const messageModel =
   mongoose.models.message || mongoose.model("message", messageSchema);
