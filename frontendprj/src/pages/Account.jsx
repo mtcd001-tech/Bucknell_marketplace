@@ -164,6 +164,7 @@ const Account = () => {
                 <ChatThread
                   conversation={conversations.find((c) => c._id === selectedId)}
                   onMessageSent={fetchConversations}
+                  initialComposer={searchParams.get('compose')}
                 />
               ) : (
                 <p className='text-sm text-gray-500 py-10 text-center'>Pick a conversation to open it.</p>

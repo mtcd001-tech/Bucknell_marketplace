@@ -134,7 +134,13 @@ const removeProduct = async (req, res) => {
 const singleProduct = async (req, res) => {
   try{
     const { productId } = req.body
-    const product = await productModel.findById(productId)
+    // Populated like listProducts so the detail page renders the same seller
+    // card either way. This is also the ONLY way to load a sold listing --
+    // browse filters those out, so a sold item's page and its conversations
+    // would otherwise have nothing to render.
+    const product = await productModel
+      .findById(productId)
+      .populate('seller', 'name email')
     res.json({success:true, product})
 
   }catch(error){

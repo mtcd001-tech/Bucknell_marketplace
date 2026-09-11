@@ -20,6 +20,23 @@ logger = logging.getLogger(__name__)
 # draft itself is only a few hundred tokens.
 MAX_OUTPUT_TOKENS = 8192
 
+# Retries are OFF unless retry_options is passed -- the SDK does not retry by
+# default. A 503 from Gemini is usually a brief overload, and without this a
+# single blip sends the seller off to type the listing by hand.
+#
+# Tuned deliberately smaller than the SDK's own defaults (5 attempts, up to a
+# 60s delay). A seller is watching a spinner, and Node aborts this call at 60s
+# (DRAFT_TIMEOUT_MS in aiController.js), so a retry policy that can outlast
+# that budget would just turn a fast failure into a slow one. Three attempts
+# with 1s then 2s of backoff adds at most ~3s of waiting.
+RETRY_OPTIONS = types.HttpRetryOptions(
+    attempts=3,
+    initial_delay=1.0,
+    max_delay=4.0,
+    exp_base=2.0,
+    http_status_codes=[408, 429, 500, 502, 503, 504],
+)
+
 SYSTEM_PROMPT = f"""You help students at Bucknell University write listings for a campus \
 marketplace where they sell used items to each other.
 
@@ -64,7 +81,8 @@ def _get_client() -> genai.Client:
     """
     global _client
     if _client is None:
-        _client = genai.Client()  # reads GEMINI_API_KEY / GOOGLE_API_KEY
+        # reads GEMINI_API_KEY / GOOGLE_API_KEY from the environment
+        _client = genai.Client(http_options=types.HttpOptions(retry_options=RETRY_OPTIONS))
     return _client
 
 
@@ -129,6 +147,14 @@ def draft_listing(
                 response_mime_type="application/json",
                 response_schema=ListingDraftFromModel,
                 max_output_tokens=MAX_OUTPUT_TOKENS,
+                # Automatic Function Calling is on by default and warns loudly
+                # about itself on every request. This is a single vision call
+                # with a response schema -- there are no tools and nothing to
+                # call -- so turn off machinery we never use and silence the
+                # noise it logs.
+                automatic_function_calling=types.AutomaticFunctionCallingConfig(
+                    disable=True
+                ),
             ),
         )
     except errors.ClientError as exc:

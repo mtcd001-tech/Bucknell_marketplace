@@ -23,7 +23,7 @@ import { OfferCard, PickupCard } from "./MessageCard";
 // The cost is refetching the whole thread on reconnect. For campus haggling
 // (tens of messages) that is nothing. If threads ever got long, the fix is a
 // ?since=<createdAt> parameter on the messages endpoint, not a replay buffer.
-const ChatThread = ({ conversation, onMessageSent }) => {
+const ChatThread = ({ conversation, onMessageSent, initialComposer }) => {
   const { backendUrl, token } = useContext(ShopContext);
   const { socket, connected } = useContext(SocketContext);
 
@@ -31,7 +31,12 @@ const ChatThread = ({ conversation, onMessageSent }) => {
   const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
-  const [composer, setComposer] = useState("text"); // text | offer | pickup
+  // "Request to Buy" deep-links with compose=offer so the buyer lands on the
+  // offer form; "Message Seller" lands on plain chat. That is the only
+  // behavioural difference between the two buttons.
+  const [composer, setComposer] = useState(
+    ["text", "offer", "pickup"].includes(initialComposer) ? initialComposer : "text",
+  ); // text | offer | pickup
   const [offerAmount, setOfferAmount] = useState("");
   const [pickupLocation, setPickupLocation] = useState("");
   const [pickupTime, setPickupTime] = useState("");
