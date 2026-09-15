@@ -25,7 +25,18 @@ const productSchema = new mongoose.Schema({
     soldAt: { type: Number, default: null },
 })
 
-// Final price vs asking price, the second question offers-as-data answers:
+// Final price vs asking price, the second question offers-as-data answers.
+//
+// The soldPrice filter is LOAD-BEARING, not defensive. A listing marked sold
+// manually (sold off-app, no in-app offer) has soldPrice: null by design --
+// there is no agreed number to record. Drop the filter and those rows count
+// toward `sales` while contributing nothing to the averages, quietly skewing
+// the discount; worse, anyone who later "fixes" nulls with $ifNull(..., 0)
+// turns every off-app sale into a 100%-off sale.
+//
+// Note the query-vs-expression difference: in this $match, { $ne: null }
+// excludes both null AND a missing field. Inside an aggregation expression,
+// { $eq: ["$soldPrice", null] } does NOT treat a missing field as null.
 //
 //   db.products.aggregate([
 //     { $match: { status: "sold", soldPrice: { $ne: null } } },
@@ -41,6 +52,14 @@ const productSchema = new mongoose.Schema({
 //
 // Add { $group: { _id: "$category", ... } } to see which categories haggle
 // hardest. None of this is answerable if "I'll do $40" is a chat string.
+//
+// How many sales happen in the app versus off it (a manual sale has no price):
+//
+//   db.products.aggregate([
+//     { $match: { status: "sold" } },
+//     { $group: { _id: { $cond: [{ $gt: ["$soldPrice", null] }, "in-app offer", "marked sold"] },
+//                 n: { $sum: 1 } } }
+//   ])
 
 const productModel = mongoose.models.product || mongoose.model("product", productSchema);
 

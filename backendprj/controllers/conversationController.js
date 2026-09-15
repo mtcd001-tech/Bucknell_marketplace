@@ -94,7 +94,13 @@ const startConversation = async (req, res) => {
 
     const existing = await conversationModel.findOne({ listing: listingId, buyer: userId });
     if (existing) {
+      // Returned even if the listing sold: a buyer can always reopen their own
+      // history to see what was agreed. It just comes back read-only.
       return res.json({ success: true, conversation: existing, created: false });
+    }
+    if (listing.status === "sold") {
+      // But nobody opens a NEW negotiation on something that is gone.
+      return res.json({ success: false, message: "This listing has already sold" });
     }
 
     const now = Date.now();

@@ -38,6 +38,75 @@ const broadcast = async (conversationId, messageDoc) => {
   }
 };
 
+// Ends negotiation on a listing: open conversations go read-only and their
+// pending offers become 'expired'.
+//
+// This is the ONE implementation used by both ways a listing can sell --
+// accepting an offer and marking it sold manually -- so the two paths can't
+// drift. If the rules for "what happens to other buyers when this sells" ever
+// change, they change here.
+//
+// keepConversationId: the winning thread when a sale came from an accepted
+// offer. Omitted for a manual sale, where there is no winner in the app and
+// every thread closes.
+//
+// Pending offers become 'expired', not 'declined'. Nobody rejected them; the
+// item simply stopped being available. Conflating the two would corrupt the
+// acceptance rate this whole design exists to measure.
+const closeNegotiations = async (listingId, { keepConversationId = null, now = Date.now() } = {}) => {
+  const filter = { listing: listingId, status: "open" };
+  if (keepConversationId) filter._id = { $ne: keepConversationId };
+
+  const ids = (await conversationModel.find(filter).select("_id")).map((c) => c._id);
+  if (ids.length === 0) return { closedConversations: 0, expiredOffers: 0 };
+
+  const closed = await conversationModel.updateMany(
+    { _id: { $in: ids } },
+    { $set: { status: "closed" } },
+  );
+  const expired = await messageModel.updateMany(
+    { conversation: { $in: ids }, type: "offer", "offer.status": "pending" },
+    { $set: { "offer.status": "expired", "offer.respondedAt": now } },
+  );
+
+  // Flip any open browser to read-only immediately, instead of letting someone
+  // type into a thread the server will reject.
+  for (const id of ids) {
+    getIO()?.to(roomFor(id)).emit("conversation:closed", { conversationId: id, reason: "sold" });
+  }
+
+  return { closedConversations: closed.modifiedCount, expiredOffers: expired.modifiedCount };
+};
+
+// The inverse, for relisting. Reopens every closed thread on the listing.
+//
+// Reopening is not optional. POST /api/conversations is idempotent on
+// (listing, buyer), so a buyer whose thread stayed closed could never start a
+// fresh one -- they would get their read-only thread back and be locked out of
+// a listing that is available again.
+//
+// Expired offers deliberately STAY expired. They were real offers made while
+// the item was available, and resurrecting a two-day-old $8 offer as 'pending'
+// would let a seller accept something the buyer may no longer stand behind.
+// Buyers make a new offer in the reopened thread instead.
+const reopenNegotiations = async (listingId) => {
+  const ids = (
+    await conversationModel.find({ listing: listingId, status: "closed" }).select("_id")
+  ).map((c) => c._id);
+  if (ids.length === 0) return { reopenedConversations: 0 };
+
+  const reopened = await conversationModel.updateMany(
+    { _id: { $in: ids } },
+    { $set: { status: "open" } },
+  );
+
+  for (const id of ids) {
+    getIO()?.to(roomFor(id)).emit("conversation:reopened", { conversationId: id });
+  }
+
+  return { reopenedConversations: reopened.modifiedCount };
+};
+
 // POST /api/conversations/:id/messages -- send an 'offer' or a 'pickup'.
 const sendStructuredMessage = async (req, res) => {
   try {
@@ -221,41 +290,16 @@ const respondToMessage = async (req, res) => {
     listing.soldAt = now;
     await listing.save();
 
-    // 3. Every OTHER conversation on this listing. The winning thread stays
-    //    open -- that pair still has to arrange the handoff, which is exactly
-    //    what the pickup message type is for. The rest go read-only.
-    const closedResult = await conversationModel.updateMany(
-      { listing: listing._id, _id: { $ne: conversation._id } },
-      { $set: { status: "closed" } },
-    );
-
-    // 4. Their still-pending offers become 'expired', not 'declined'. Nobody
-    //    rejected them; they lost a race. Conflating the two would corrupt the
-    //    acceptance rate this whole design exists to measure.
-    const rivalConversations = await conversationModel
-      .find({ listing: listing._id, _id: { $ne: conversation._id } })
-      .select("_id");
-
-    const expiredResult = await messageModel.updateMany(
-      {
-        conversation: { $in: rivalConversations.map((c) => c._id) },
-        type: "offer",
-        "offer.status": "pending",
-      },
-      { $set: { "offer.status": "expired", "offer.respondedAt": now } },
-    );
+    // 3 + 4. Close every OTHER conversation and expire its pending offers.
+    //    The winning thread stays open -- that pair still has to arrange the
+    //    handoff, which is exactly what the pickup message type is for.
+    const { closedConversations, expiredOffers } = await closeNegotiations(listing._id, {
+      keepConversationId: conversation._id,
+      now,
+    });
 
     const message = await broadcast(conversation._id, target);
     getIO()?.to(roomFor(conversation._id)).emit("message:updated", { message });
-
-    // Tell the losing threads to refresh themselves, so a buyer staring at the
-    // page sees it go read-only instead of typing into a dead conversation.
-    for (const rival of rivalConversations) {
-      getIO()?.to(roomFor(rival._id)).emit("conversation:closed", {
-        conversationId: rival._id,
-        reason: "sold",
-      });
-    }
 
     res.json({
       success: true,
@@ -265,8 +309,8 @@ const respondToMessage = async (req, res) => {
         status: listing.status,
         soldPrice: listing.soldPrice,
       },
-      closedConversations: closedResult.modifiedCount,
-      expiredOffers: expiredResult.modifiedCount,
+      closedConversations,
+      expiredOffers,
     });
   } catch (error) {
     console.log(error);
@@ -274,4 +318,4 @@ const respondToMessage = async (req, res) => {
   }
 };
 
-export { sendStructuredMessage, respondToMessage };
+export { sendStructuredMessage, respondToMessage, closeNegotiations, reopenNegotiations };

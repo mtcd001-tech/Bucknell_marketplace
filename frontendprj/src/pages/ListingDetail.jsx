@@ -9,10 +9,11 @@ import { currentUserId } from '../utils/currentUser';
 const ListingDetail = () => {
 
   const { listingId } = useParams();
-  const { listings, currency, backendUrl, token, navigate } = useContext(ShopContext);
+  const { listings, currency, backendUrl, token, navigate, getListingsData } = useContext(ShopContext);
   const [listingData, setListingData] = useState(false);
   const [image, setImage] = useState('')
   const [openingChat, setOpeningChat] = useState(false)
+  const [changingStatus, setChangingStatus] = useState(false)
   const [notFound, setNotFound] = useState(false)
 
   const me = currentUserId(token)
@@ -21,6 +22,9 @@ const ListingDetail = () => {
   const sellerId = String(listingData?.seller?._id || listingData?.seller || '')
   const isMine = Boolean(me) && sellerId === String(me)
   const isSold = listingData?.status === 'sold'
+  // An accepted offer records the agreed price; a manual sale deliberately
+  // leaves it null. That null is the only signal of which kind of sale it was.
+  const soldInApp = isSold && listingData?.soldPrice != null
   const iBoughtIt =
     isSold && String(listingData?.soldTo?._id || listingData?.soldTo || '') === String(me)
 
@@ -53,6 +57,52 @@ const ListingDetail = () => {
   useEffect(() => {
     fetchListingData();
   }, [fetchListingData])
+
+  // Mark as Sold / Relist. The response carries the updated listing, so the
+  // page reflects it immediately; getListingsData refreshes browse, which the
+  // listing leaves (on sale) or rejoins (on relist).
+  const changeStatus = async (action) => {
+    setChangingStatus(true)
+    try {
+      const response = await axios.post(
+        `${backendUrl}/api/product/${action}`,
+        { id: listingId },
+        { headers: { token } },
+      )
+      if (!response.data.success) {
+        toast.error(response.data.message)
+        return
+      }
+      setListingData(response.data.listing)
+      if (action === 'mark-sold') {
+        const closed = response.data.closedConversations || 0
+        toast.success(
+          closed > 0
+            ? `Marked as sold. ${closed} open conversation${closed === 1 ? '' : 's'} closed.`
+            : 'Marked as sold.',
+        )
+      } else {
+        toast.success('Relisted. It is back in browse.')
+      }
+      await getListingsData()
+    } catch (error) {
+      toast.error('Could not update this listing.')
+      console.log(`${action} failed:`, error)
+    } finally {
+      setChangingStatus(false)
+    }
+  }
+
+  const markSold = () => {
+    // A confirm, not just the relist safety net: this closes other people's
+    // conversations, and they get a read-only thread the moment it happens.
+    const ok = window.confirm(
+      'Mark this listing as sold? Anyone messaging you about it will see the conversation close. You can relist it afterwards.',
+    )
+    if (ok) changeStatus('mark-sold')
+  }
+
+  const relist = () => changeStatus('relist')
 
   // Both buttons land here. The POST is idempotent, so a buyer who already has
   // a thread on this listing is returned to it rather than getting a second
@@ -161,24 +211,43 @@ const ListingDetail = () => {
           {isSold ? (
             <div className='mt-6 border border-gray-300 bg-gray-50 rounded p-4 max-w-md'>
               <p className='font-medium text-gray-800 mb-1'>
-                {iBoughtIt ? 'You bought this' : 'This listing sold'}
+                {iBoughtIt ? 'You bought this' : soldInApp ? 'This listing sold' : isMine ? 'Marked as sold' : 'This listing sold'}
               </p>
               <p className='text-sm text-gray-600'>
-                {listingData.soldPrice != null
-                  ? `Sold for ${currency}${listingData.soldPrice}.`
-                  : 'It is no longer available.'}
-                {' '}
-                {isMine || iBoughtIt
-                  ? 'Your conversation stays open in My Account so you can arrange pickup.'
-                  : 'It is no longer available.'}
+                {soldInApp
+                  ? `Sold for ${currency}${listingData.soldPrice}. ${
+                      isMine || iBoughtIt
+                        ? 'Your conversation stays open in My Account so you can arrange pickup.'
+                        : 'It is no longer available.'
+                    }`
+                  : isMine
+                    ? 'You marked this sold outside the app. Relist it if that was a mistake.'
+                    : 'It is no longer available.'}
               </p>
+              {isMine && (
+                <button
+                  onClick={relist}
+                  disabled={changingStatus}
+                  className='mt-3 border border-gray-800 px-4 py-2 text-sm hover:bg-gray-800 hover:text-white transition disabled:opacity-50'
+                >
+                  {changingStatus ? 'Relisting…' : 'Relist'}
+                </button>
+              )}
             </div>
           ) : isMine ? (
             <div className='mt-6 border border-gray-300 bg-gray-50 rounded p-4 max-w-md'>
               <p className='font-medium text-gray-800 mb-1'>This is your listing</p>
               <p className='text-sm text-gray-600'>
                 Buyers who message you show up under Messages in My Account.
+                Sold it somewhere else? Mark it sold so buyers stop asking.
               </p>
+              <button
+                onClick={markSold}
+                disabled={changingStatus}
+                className='mt-3 border border-gray-800 px-4 py-2 text-sm hover:bg-gray-800 hover:text-white transition disabled:opacity-50'
+              >
+                {changingStatus ? 'Updating…' : 'Mark as Sold'}
+              </button>
             </div>
           ) : (
             <button

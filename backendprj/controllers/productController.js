@@ -1,6 +1,8 @@
+import mongoose from "mongoose";
 import { v2 as cloudinary } from "cloudinary";
 import productModel from "../models/productModel.js";
 import { recordSuggestionOutcome } from "../models/priceSuggestionModel.js";
+import { closeNegotiations, reopenNegotiations } from "./offerController.js";
 
 // function for add product
 const addProduct = async (req, res) => {
@@ -130,6 +132,77 @@ const removeProduct = async (req, res) => {
   }
 };
 
+// Loads a listing only if the caller owns it. Same ObjectId-vs-string rule as
+// removeProduct: listing.seller is an ObjectId, the JWT id is a string.
+const loadOwnListing = async (listingId, userId) => {
+  if (!mongoose.isValidObjectId(listingId)) return null;
+  const listing = await productModel.findById(listingId);
+  if (!listing || listing.seller?.toString() !== userId) return null;
+  return listing;
+};
+
+// POST /api/product/mark-sold -- the seller sold it outside the app.
+//
+// soldPrice and soldTo stay null on purpose. There was no in-app offer, so
+// there is no agreed price to record and no buyer to credit. Writing 0 (or the
+// asking price) would put a made-up number into the final-vs-asking data.
+const markSold = async (req, res) => {
+  try {
+    const listing = await loadOwnListing(req.body.id, req.body.userId);
+    if (!listing) {
+      return res.json({ success: false, message: "Listing not found" });
+    }
+    if (listing.status === "sold") {
+      return res.json({ success: false, message: "This listing is already sold" });
+    }
+
+    const now = Date.now();
+    listing.status = "sold";
+    listing.soldAt = now;
+    listing.soldPrice = null;
+    listing.soldTo = null;
+    await listing.save();
+
+    // No winner to keep open -- the sale happened elsewhere -- so every
+    // thread closes. Same helper the accept-offer path uses.
+    const result = await closeNegotiations(listing._id, { now });
+
+    const updated = await productModel.findById(listing._id).populate("seller", "name email");
+    res.json({ success: true, listing: updated, ...result });
+  } catch (error) {
+    console.log(error);
+    res.json({ success: false, message: error.message });
+  }
+};
+
+// POST /api/product/relist -- undo a sale, most often a mis-click on Mark as
+// Sold. Also covers a deal that fell through after an accepted offer.
+const relist = async (req, res) => {
+  try {
+    const listing = await loadOwnListing(req.body.id, req.body.userId);
+    if (!listing) {
+      return res.json({ success: false, message: "Listing not found" });
+    }
+    if (listing.status !== "sold") {
+      return res.json({ success: false, message: "This listing isn't marked as sold" });
+    }
+
+    listing.status = "active";
+    listing.soldAt = null;
+    listing.soldPrice = null;
+    listing.soldTo = null;
+    await listing.save();
+
+    const result = await reopenNegotiations(listing._id);
+
+    const updated = await productModel.findById(listing._id).populate("seller", "name email");
+    res.json({ success: true, listing: updated, ...result });
+  } catch (error) {
+    console.log(error);
+    res.json({ success: false, message: error.message });
+  }
+};
+
 // function for add single product info
 const singleProduct = async (req, res) => {
   try{
@@ -149,4 +222,4 @@ const singleProduct = async (req, res) => {
   }
 };
 
-export { addProduct, listProducts, myListings, removeProduct, singleProduct };
+export { addProduct, listProducts, myListings, removeProduct, singleProduct, markSold, relist };

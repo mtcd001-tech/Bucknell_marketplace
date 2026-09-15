@@ -1,7 +1,8 @@
 import express from 'express'
-import  { addProduct, listProducts, removeProduct, singleProduct } from '../controllers/productController.js';
+import  { addProduct, listProducts, removeProduct, singleProduct, markSold, relist } from '../controllers/productController.js';
 import upload from '../middleware/multer.js';
 import adminAuth from '../middleware/adminAuth.js';
+import authUser from '../middleware/auth.js';
 
 const productRouter = express.Router();
 
@@ -9,5 +10,9 @@ productRouter.post('/add',adminAuth,upload.fields([{name:'image1', maxCount:1}, 
 productRouter.get('/list',listProducts)
 productRouter.post('/remove',adminAuth, removeProduct)
 productRouter.post('/single', singleProduct)
+
+// Seller-only; ownership is enforced inside the controller.
+productRouter.post('/mark-sold', authUser, markSold)
+productRouter.post('/relist', authUser, relist)
 
 export default productRouter

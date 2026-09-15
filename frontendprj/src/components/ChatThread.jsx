@@ -48,7 +48,10 @@ const ChatThread = ({ conversation, onMessageSent, initialComposer }) => {
 
   const conversationId = conversation?._id;
   const me = currentUserId(token);
-  const isClosed = conversation?.status === "closed" || closedLive;
+  // closedLive is the live truth (socket events + the last fetch). The prop is
+  // only a fallback until the first fetch lands, since the parent's copy goes
+  // stale the moment a listing is sold or relisted.
+  const isClosed = loading ? conversation?.status === "closed" : closedLive;
 
   const loadThread = useCallback(async () => {
     if (!conversationId) return;
@@ -59,7 +62,9 @@ const ChatThread = ({ conversation, onMessageSent, initialComposer }) => {
       );
       if (res.data.success) {
         setMessages(res.data.messages);
-        if (res.data.conversation?.status === "closed") setClosedLive(true);
+        // The server is authoritative in both directions: a relisted item
+        // reopens the thread, so this must be able to clear, not only set.
+        setClosedLive(res.data.conversation?.status === "closed");
       } else {
         toast.error(res.data.message);
       }
@@ -117,12 +122,23 @@ const ChatThread = ({ conversation, onMessageSent, initialComposer }) => {
     };
     socket.on("conversation:closed", onClosed);
 
+    // The seller relisted the item. Without this the thread would sit
+    // read-only until a refresh, on a listing that is available again.
+    const onReopened = ({ conversationId: openedId }) => {
+      if (String(openedId) !== String(conversationId)) return;
+      setClosedLive(false);
+      loadThread();
+      onMessageSent?.();
+    };
+    socket.on("conversation:reopened", onReopened);
+
     return () => {
       socket.emit("conversation:leave", { conversationId });
       socket.off("connect", joinAndSync);
       socket.off("message:new", onNew);
       socket.off("message:updated", onUpdated);
       socket.off("conversation:closed", onClosed);
+      socket.off("conversation:reopened", onReopened);
     };
   }, [socket, conversationId, loadThread, onMessageSent]);
 
@@ -298,8 +314,8 @@ const ChatThread = ({ conversation, onMessageSent, initialComposer }) => {
 
       {isClosed ? (
         <p className="px-4 py-3 border-t text-sm text-gray-500 bg-gray-50">
-          This listing sold to someone else. The conversation is read-only, but
-          you can still look back at what was agreed.
+          This listing has sold. The conversation is read-only, but you can
+          still look back at what was agreed.
         </p>
       ) : (
         <div className="border-t">

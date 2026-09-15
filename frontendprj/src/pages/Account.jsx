@@ -22,7 +22,7 @@ const EmptyState = ({ title, body, actionLabel, actionTo }) => (
 
 const Account = () => {
 
-  const { backendUrl, token } = useContext(ShopContext)
+  const { backendUrl, token, getListingsData } = useContext(ShopContext)
   // Deep links from a listing land here as ?tab=Messages&c=<conversationId>,
   // so "Message Seller" can drop you straight into the right thread.
   const [searchParams] = useSearchParams()
@@ -32,6 +32,7 @@ const Account = () => {
   const [myListings, setMyListings] = useState([])
   const [conversations, setConversations] = useState([])
   const [selectedId, setSelectedId] = useState(searchParams.get('c') || '')
+  const [changingId, setChangingId] = useState('')
   const me = currentUserId(token)
 
   const fetchMyListings = async () => {
@@ -46,6 +47,38 @@ const Account = () => {
       toast.error(error.message)
     }
   }
+
+  const changeListingStatus = async (id, action) => {
+    setChangingId(id)
+    try {
+      const response = await axios.post(
+        `${backendUrl}/api/product/${action}`,
+        { id },
+        { headers: { token } },
+      )
+      if (!response.data.success) {
+        toast.error(response.data.message)
+        return
+      }
+      toast.success(action === 'mark-sold' ? 'Marked as sold.' : 'Relisted.')
+      // Both change which threads are open, so the inbox refreshes too.
+      await Promise.all([fetchMyListings(), fetchConversations(), getListingsData()])
+    } catch (error) {
+      toast.error('Could not update this listing.')
+      console.log(`${action} failed:`, error)
+    } finally {
+      setChangingId('')
+    }
+  }
+
+  const markListingSold = (id) => {
+    const ok = window.confirm(
+      'Mark this listing as sold? Anyone messaging you about it will see the conversation close. You can relist it afterwards.',
+    )
+    if (ok) changeListingStatus(id, 'mark-sold')
+  }
+
+  const relistListing = (id) => changeListingStatus(id, 'relist')
 
   const fetchConversations = async () => {
     try {
@@ -84,19 +117,38 @@ const Account = () => {
       {activeTab === 'My Listings' && (
         myListings.length > 0 ? (
           <div className='grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 gap-y-6'>
-            {myListings.map((item) => (
-              <ListingCard
-                key={item._id}
-                id={item._id}
-                image={item.image}
-                name={item.name}
-                price={item.price}
-                courseCode={item.courseCode}
-                condition={item.condition}
-                seller={item.seller}
-                pickupLocation={item.pickupLocation}
-              />
-            ))}
+            {myListings.map((item) => {
+              const sold = item.status === 'sold'
+              return (
+                // The action sits OUTSIDE ListingCard on purpose: the card is
+                // one big <Link>, and a button nested inside a link is invalid
+                // HTML that also fires navigation when you meant to click it.
+                <div key={item._id} className={sold ? 'opacity-70' : ''}>
+                  <ListingCard
+                    id={item._id}
+                    image={item.image}
+                    name={item.name}
+                    price={item.price}
+                    courseCode={item.courseCode}
+                    condition={item.condition}
+                    seller={item.seller}
+                    pickupLocation={item.pickupLocation}
+                  />
+                  {sold && (
+                    <p className='text-xs text-gray-500 mt-1'>
+                      {item.soldPrice != null ? `Sold for $${item.soldPrice}` : 'Marked as sold'}
+                    </p>
+                  )}
+                  <button
+                    onClick={() => (sold ? relistListing(item._id) : markListingSold(item._id))}
+                    disabled={changingId === item._id}
+                    className='mt-2 w-full border border-gray-300 text-xs py-1.5 rounded hover:bg-gray-50 disabled:opacity-50'
+                  >
+                    {changingId === item._id ? 'Updating…' : sold ? 'Relist' : 'Mark as Sold'}
+                  </button>
+                </div>
+              )
+            })}
           </div>
         ) : (
           <EmptyState
