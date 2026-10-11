@@ -1,3 +1,6 @@
 node_modules/
 .env
 uploads/ 
+seed.js
+backfill.js
+test.js

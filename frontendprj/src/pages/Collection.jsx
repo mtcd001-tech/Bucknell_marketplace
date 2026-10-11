@@ -3,7 +3,7 @@ import { ShopContext } from '../context/ShopContext'
 import { assets } from '../assets/assets';
 import Title from '../components/Title';
 import ListingCard from '../components/ListingCard';
-import { CAMPUS_CATEGORIES, CONDITIONS, getPlaceholderListingMeta } from '../mocks/marketplace';
+import { CAMPUS_CATEGORIES, CONDITIONS } from '../mocks/marketplace';
 
 const Collection = () => {
 
@@ -47,11 +47,8 @@ const Collection = () => {
       listingsCopy = listingsCopy.filter(item => category.includes(item.category));
     }
 
-    // TODO: wire to backend — filtering by the real `condition` field once
-    // the listing model has one. For now this filters against the same
-    // deterministic placeholder condition shown on the listing card.
     if (condition.length > 0) {
-      listingsCopy = listingsCopy.filter(item => condition.includes(getPlaceholderListingMeta(item._id).condition));
+      listingsCopy = listingsCopy.filter(item => condition.includes(item.condition));
     }
 
     setFilterListings(listingsCopy)
@@ -136,7 +133,7 @@ const Collection = () => {
           <div className='grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 gap-y-6'>
             {
               filterListings.map((item,index)=>(
-                <ListingCard key={index} name={item.name} id={item._id} price={item.price} image={item.image} courseCode={item.courseCode} />
+                <ListingCard key={index} name={item.name} id={item._id} price={item.price} image={item.image} courseCode={item.courseCode} condition={item.condition} seller={item.seller} pickupLocation={item.pickupLocation}/>
               ))
             }
           </div>

@@ -25,7 +25,7 @@ const LatestCollection = () => {
       <div className='grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 gap-y-6'>
         {
           latestListings.map((item,index)=>(
-            <ListingCard key={index} id={item._id} image={item.image} name={item.name} price={item.price} courseCode={item.courseCode} />
+            <ListingCard key={index} id={item._id} image={item.image} name={item.name} price={item.price} courseCode={item.courseCode} condition={item.condition} seller={item.seller} pickupLocation={item.pickupLocation}/>
           ))
         }
       </div>

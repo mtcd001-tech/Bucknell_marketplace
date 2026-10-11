@@ -9,7 +9,7 @@ const Login = () => {
   const { token, setToken, navigate, backendUrl } = useContext(ShopContext)
 
   const [name,setName] = useState('')
-  const [password,setPasword] = useState('')
+  const [password,setPassword] = useState('')
   const [email,setEmail] = useState('')
 
   const onSubmitHandler = async (event) => {
@@ -58,7 +58,7 @@ const Login = () => {
         </div>
         {currentState === 'Login' ? '' : <input onChange={(e)=>setName(e.target.value)} value={name} type="text" className='w-full px-3 py-2 border border-gray-800' placeholder='Name' required/>}
         <input onChange={(e)=>setEmail(e.target.value)} value={email} type="email" className='w-full px-3 py-2 border border-gray-800' placeholder='Email' required/>
-        <input onChange={(e)=>setPasword(e.target.value)} value={password} type="password" className='w-full px-3 py-2 border border-gray-800' placeholder='Password' required/>
+        <input onChange={(e)=>setPassword(e.target.value)} value={password} type="password" className='w-full px-3 py-2 border border-gray-800' placeholder='Password' required/>
         <div className='w-full flex justify-between text-sm mt-[-8px]'>
             <p className=' cursor-pointer'>Forgot your password?</p>
             {
